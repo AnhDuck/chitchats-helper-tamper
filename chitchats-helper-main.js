@@ -252,12 +252,13 @@
     }
   }
 
-  const CHECKBOX_CLICK_DELAY_MS = 120;
+  const CHECKBOX_CLICK_DELAY_MS = 250;
+  const SELECTION_RETRY_DELAY_MS = 600;
+  const SELECTION_MAX_RETRIES = 2;
 
   function setCheckboxChecked(checkbox, shouldCheck) {
     if (!checkbox || checkbox.checked === shouldCheck) return;
-    checkbox.scrollIntoView({ block: "center", inline: "nearest" });
-    dispatchMouseLikeClick(checkbox);
+    checkbox.click();
 
     if (checkbox.checked !== shouldCheck) {
       checkbox.checked = shouldCheck;
@@ -303,15 +304,16 @@
     });
   }
 
-  function selectCountryRowsSequentially(countryCode) {
+  function getCountryCheckboxes(countryCode) {
     const rows = Array.from(
       document.querySelectorAll("tr[class*='js-shipment-import-record-']")
     );
-    if (!rows.length) return Promise.resolve();
+    if (!rows.length) return [];
 
     const table = rows[0].closest("table");
     const countryIndex = getCountryColumnIndex(table);
-    const checkboxes = rows
+
+    return rows
       .map((row) => {
         const countryCell = getCountryCell(row, countryIndex);
         const code = normalizeCountryCode(countryCell ? countryCell.textContent : "");
@@ -321,6 +323,10 @@
         );
       })
       .filter(Boolean);
+  }
+
+  function selectCheckboxesSequentially(checkboxes) {
+    if (!checkboxes.length) return Promise.resolve();
 
     return new Promise((resolve) => {
       let index = 0;
@@ -353,11 +359,26 @@
     }, 50);
   }
 
-  function ensureCountrySelection(countryCode) {
-    selectCountryRowsSequentially(countryCode);
-    window.setTimeout(() => {
-      selectCountryRowsSequentially(countryCode);
-    }, 300);
+  function countChecked(checkboxes) {
+    return checkboxes.filter((checkbox) => checkbox.checked).length;
+  }
+
+  function ensureCountrySelection(countryCode, attempt = 0) {
+    const checkboxes = getCountryCheckboxes(countryCode);
+    if (!checkboxes.length) return Promise.resolve();
+
+    return selectCheckboxesSequentially(checkboxes).then(() => {
+      return new Promise((resolve) => {
+        window.setTimeout(() => {
+          const checked = countChecked(checkboxes);
+          if (checked < checkboxes.length && attempt < SELECTION_MAX_RETRIES) {
+            resolve(ensureCountrySelection(countryCode, attempt + 1));
+            return;
+          }
+          resolve();
+        }, SELECTION_RETRY_DELAY_MS);
+      });
+    });
   }
 
   function handleSelectUsOrders(button) {
@@ -378,13 +399,14 @@
     }
 
     waitForDeselectAll(() => {
-      ensureCountrySelection("US");
-      window.setTimeout(() => {
-        if (!button) return;
-        button.dataset.busy = "false";
-        button.disabled = false;
-        button.textContent = "Select all U.S. orders";
-      }, 1000);
+      ensureCountrySelection("US").finally(() => {
+        window.setTimeout(() => {
+          if (!button) return;
+          button.dataset.busy = "false";
+          button.disabled = false;
+          button.textContent = "Select all U.S. orders";
+        }, 300);
+      });
     });
   }
 
