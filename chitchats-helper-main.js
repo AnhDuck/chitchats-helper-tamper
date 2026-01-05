@@ -252,6 +252,8 @@
     }
   }
 
+  const CHECKBOX_CLICK_DELAY_MS = 120;
+
   function setCheckboxChecked(checkbox, shouldCheck) {
     if (!checkbox || checkbox.checked === shouldCheck) return;
     checkbox.scrollIntoView({ block: "center", inline: "nearest" });
@@ -301,6 +303,43 @@
     });
   }
 
+  function selectCountryRowsSequentially(countryCode) {
+    const rows = Array.from(
+      document.querySelectorAll("tr[class*='js-shipment-import-record-']")
+    );
+    if (!rows.length) return Promise.resolve();
+
+    const table = rows[0].closest("table");
+    const countryIndex = getCountryColumnIndex(table);
+    const checkboxes = rows
+      .map((row) => {
+        const countryCell = getCountryCell(row, countryIndex);
+        const code = normalizeCountryCode(countryCell ? countryCell.textContent : "");
+        if (code !== countryCode) return null;
+        return row.querySelector(
+          "input[type='checkbox'][name='shipment_import_select_view_model[shipment_import_record_ids][]']"
+        );
+      })
+      .filter(Boolean);
+
+    return new Promise((resolve) => {
+      let index = 0;
+      const tick = () => {
+        const checkbox = checkboxes[index];
+        if (checkbox) {
+          setCheckboxChecked(checkbox, true);
+        }
+        index += 1;
+        if (index >= checkboxes.length) {
+          resolve();
+          return;
+        }
+        window.setTimeout(tick, CHECKBOX_CLICK_DELAY_MS);
+      };
+      tick();
+    });
+  }
+
   function waitForDeselectAll(callback, timeoutMs = 2000) {
     const start = Date.now();
     const timer = window.setInterval(() => {
@@ -315,17 +354,21 @@
   }
 
   function ensureCountrySelection(countryCode) {
-    selectCountryRows(countryCode);
+    selectCountryRowsSequentially(countryCode);
     window.setTimeout(() => {
-      selectCountryRows(countryCode);
-    }, 150);
-    window.setTimeout(() => {
-      selectCountryRows(countryCode);
-    }, 500);
+      selectCountryRowsSequentially(countryCode);
+    }, 300);
   }
 
-  function handleSelectUsOrders() {
+  function handleSelectUsOrders(button) {
     if (!isImportSelectPage()) return;
+
+    if (button && button.dataset.busy === "true") return;
+    if (button) {
+      button.dataset.busy = "true";
+      button.disabled = true;
+      button.textContent = "Selecting U.S. orders...";
+    }
 
     const deselectButton = findDeselectAllButton();
     if (deselectButton) {
@@ -336,6 +379,12 @@
 
     waitForDeselectAll(() => {
       ensureCountrySelection("US");
+      window.setTimeout(() => {
+        if (!button) return;
+        button.dataset.busy = "false";
+        button.disabled = false;
+        button.textContent = "Select all U.S. orders";
+      }, 1000);
     });
   }
 
@@ -360,7 +409,7 @@
     button.style.marginLeft = "12px";
     button.style.cursor = "pointer";
 
-    button.addEventListener("click", handleSelectUsOrders);
+    button.addEventListener("click", () => handleSelectUsOrders(button));
 
     container.appendChild(button);
   }
