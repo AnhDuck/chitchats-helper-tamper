@@ -254,9 +254,14 @@
 
   function setCheckboxChecked(checkbox, shouldCheck) {
     if (!checkbox || checkbox.checked === shouldCheck) return;
-    checkbox.checked = shouldCheck;
-    checkbox.dispatchEvent(new Event("input", { bubbles: true }));
-    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    checkbox.scrollIntoView({ block: "center", inline: "nearest" });
+    dispatchMouseLikeClick(checkbox);
+
+    if (checkbox.checked !== shouldCheck) {
+      checkbox.checked = shouldCheck;
+      checkbox.dispatchEvent(new Event("input", { bubbles: true }));
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    }
   }
 
   function getCountryCell(row, countryIndex) {
@@ -313,7 +318,10 @@
     selectCountryRows(countryCode);
     window.setTimeout(() => {
       selectCountryRows(countryCode);
-    }, 100);
+    }, 150);
+    window.setTimeout(() => {
+      selectCountryRows(countryCode);
+    }, 500);
   }
 
   function handleSelectUsOrders() {
