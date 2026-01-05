@@ -56,6 +56,12 @@
   // Ctrl+Shift+P triggers a click attempt immediately.
   const HOTKEY_ENABLED = true;
 
+  // Shipments-only: editable dimension presets for L/W/H (cm).
+  const DIMENSION_PRESETS = [
+    { label: "15 x 15 x 5 cm", x: 15, y: 15, z: 5 },
+    { label: "15 x 18.5 x 5 cm", x: 15, y: 18.5, z: 5 }
+  ];
+
   // ========= HELPERS =========
   const log = (...args) => DEBUG && console.log("[CC AutoPrint]", ...args);
 
@@ -272,15 +278,65 @@
     weightRow.insertAdjacentElement("afterend", container);
   }
 
+  // Injects dimension presets into the form actions (safe to re-run; no duplicates).
+  function setupDimensionPresetButtons() {
+    if (!isShipmentsPage()) return;
+
+    const formActions = document.querySelector(".form-actions.text-right");
+    if (!formActions) return;
+    if (document.getElementById("cc-dimension-presets")) return;
+
+    const lengthInput = document.querySelector("#shipment_package_view_model_size_x_amount");
+    const widthInput = document.querySelector("#shipment_package_view_model_size_y_amount");
+    const heightInput = document.querySelector("#shipment_package_view_model_size_z_amount");
+    if (!lengthInput || !widthInput || !heightInput) return;
+
+    const container = document.createElement("div");
+    container.id = "cc-dimension-presets";
+    container.style.display = "flex";
+    container.style.gap = "8px";
+    container.style.textAlign = "left";
+    container.style.marginRight = "auto";
+
+    DIMENSION_PRESETS.forEach((preset) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = preset.label;
+      button.style.background = "#0275d8";
+      button.style.color = "#fff";
+      button.style.border = "none";
+      button.style.borderRadius = "4px";
+      button.style.padding = "6px 10px";
+      button.style.cursor = "pointer";
+
+      button.addEventListener("click", () => {
+        lengthInput.value = String(preset.x);
+        widthInput.value = String(preset.y);
+        heightInput.value = String(preset.z);
+
+        [lengthInput, widthInput, heightInput].forEach((input) => {
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      });
+
+      container.appendChild(button);
+    });
+
+    formActions.insertAdjacentElement("afterbegin", container);
+  }
+
   // ========= RUN =========
   // 1) Attempt once on load
   clickIfReady("auto");
   setupWeightPresetButtons();
+  setupDimensionPresetButtons();
 
   // 2) Watch for SPA/AJAX re-rendering
   const observer = new MutationObserver(() => {
     clickIfReady("auto");
     setupWeightPresetButtons();
+    setupDimensionPresetButtons();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
