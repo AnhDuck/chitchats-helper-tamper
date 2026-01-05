@@ -227,12 +227,60 @@
     }, CLICK_DELAY_MS);
   }
 
+  // ========= WEIGHT PRESET BUTTONS (SHIPMENTS EDIT) =========
+  const WEIGHT_PRESET_VALUES = [113, 226, 340, 450];
+  const WEIGHT_PRESET_CONTAINER_ID = "cc-weight-presets";
+
+  // Injects preset buttons below the weight row (safe to re-run; no duplicates).
+  function setupWeightPresetButtons() {
+    if (!isShipmentsPage()) return;
+
+    const weightInput = document.querySelector("#shipment_package_view_model_weight_amount");
+    if (!weightInput) return;
+    if (document.getElementById(WEIGHT_PRESET_CONTAINER_ID)) return;
+
+    const weightRow = weightInput.closest(".row");
+    if (!weightRow) return;
+
+    const container = document.createElement("div");
+    container.id = WEIGHT_PRESET_CONTAINER_ID;
+    container.style.display = "flex";
+    container.style.gap = "8px";
+    container.style.marginTop = "6px";
+
+    WEIGHT_PRESET_VALUES.forEach((value) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `${value} g`;
+      button.style.background = "#d9534f";
+      button.style.color = "#fff";
+      button.style.border = "none";
+      button.style.borderRadius = "4px";
+      button.style.padding = "6px 10px";
+      button.style.cursor = "pointer";
+
+      button.addEventListener("click", () => {
+        weightInput.value = String(value);
+        weightInput.dispatchEvent(new Event("input", { bubbles: true }));
+        weightInput.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
+      container.appendChild(button);
+    });
+
+    weightRow.insertAdjacentElement("afterend", container);
+  }
+
   // ========= RUN =========
   // 1) Attempt once on load
   clickIfReady("auto");
+  setupWeightPresetButtons();
 
   // 2) Watch for SPA/AJAX re-rendering
-  const observer = new MutationObserver(() => clickIfReady("auto"));
+  const observer = new MutationObserver(() => {
+    clickIfReady("auto");
+    setupWeightPresetButtons();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
   // 3) Hotkey fallback for user-gesture-required flows
