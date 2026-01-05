@@ -246,7 +246,8 @@
     container.id = WEIGHT_PRESET_CONTAINER_ID;
     container.style.display = "flex";
     container.style.gap = "8px";
-    container.style.marginTop = "6px";
+    container.style.marginTop = "0";
+    container.style.marginBottom = "14px";
 
     WEIGHT_PRESET_VALUES.forEach((value) => {
       const button = document.createElement("button");
