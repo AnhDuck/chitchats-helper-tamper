@@ -240,6 +240,7 @@
     inputs.forEach((input) => {
       if (input.checked) {
         input.checked = false;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
       }
     });
@@ -249,6 +250,13 @@
       selectAllToggle.checked = false;
       selectAllToggle.dispatchEvent(new Event("change", { bubbles: true }));
     }
+  }
+
+  function setCheckboxChecked(checkbox, shouldCheck) {
+    if (!checkbox || checkbox.checked === shouldCheck) return;
+    checkbox.checked = shouldCheck;
+    checkbox.dispatchEvent(new Event("input", { bubbles: true }));
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   function getCountryCell(row, countryIndex) {
@@ -282,10 +290,30 @@
       );
       if (!checkbox) return;
 
-      if (code === countryCode && !checkbox.checked) {
-        checkbox.click();
+      if (code === countryCode) {
+        setCheckboxChecked(checkbox, true);
       }
     });
+  }
+
+  function waitForDeselectAll(callback, timeoutMs = 2000) {
+    const start = Date.now();
+    const timer = window.setInterval(() => {
+      const checked = document.querySelectorAll(
+        "input[type='checkbox'][name='shipment_import_select_view_model[shipment_import_record_ids][]']:checked"
+      );
+      if (checked.length === 0 || Date.now() - start > timeoutMs) {
+        window.clearInterval(timer);
+        callback();
+      }
+    }, 50);
+  }
+
+  function ensureCountrySelection(countryCode) {
+    selectCountryRows(countryCode);
+    window.setTimeout(() => {
+      selectCountryRows(countryCode);
+    }, 100);
   }
 
   function handleSelectUsOrders() {
@@ -298,10 +326,8 @@
       uncheckAllShipments();
     }
 
-    window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        selectCountryRows("US");
-      }, 150);
+    waitForDeselectAll(() => {
+      ensureCountrySelection("US");
     });
   }
 
