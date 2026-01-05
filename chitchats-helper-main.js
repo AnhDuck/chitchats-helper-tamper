@@ -216,10 +216,13 @@
   function getCountryColumnIndex(table) {
     if (!table) return -1;
     const headers = Array.from(table.querySelectorAll("thead th"));
-    return headers.findIndex((th) => {
+    const headerIndex = headers.findIndex((th) => {
       const label = (th.textContent || "").trim().toLowerCase();
       return label === "country";
     });
+    if (headerIndex >= 0) return headerIndex;
+
+    return -1;
   }
 
   function findDeselectAllButton() {
@@ -248,18 +251,31 @@
     }
   }
 
-  function selectCountryRows(countryCode) {
-    const table = document.querySelector("table");
-    const countryIndex = getCountryColumnIndex(table);
-    if (!table || countryIndex < 0) return;
+  function getCountryCell(row, countryIndex) {
+    if (!row) return null;
+    const cells = Array.from(row.querySelectorAll("td"));
 
+    if (countryIndex >= 0 && cells[countryIndex]) {
+      return cells[countryIndex];
+    }
+
+    return cells.find((cell) => {
+      const dataTitle = (cell.getAttribute("data-title") || cell.getAttribute("data-th") || "").toLowerCase();
+      return dataTitle === "country";
+    }) || null;
+  }
+
+  function selectCountryRows(countryCode) {
     const rows = Array.from(
-      table.querySelectorAll("tbody tr[class*='js-shipment-import-record-']")
+      document.querySelectorAll("tr[class*='js-shipment-import-record-']")
     );
+    if (!rows.length) return;
+
+    const table = rows[0].closest("table");
+    const countryIndex = getCountryColumnIndex(table);
 
     rows.forEach((row) => {
-      const cells = Array.from(row.querySelectorAll("td"));
-      const countryCell = cells[countryIndex];
+      const countryCell = getCountryCell(row, countryIndex);
       const code = normalizeCountryCode(countryCell ? countryCell.textContent : "");
       const checkbox = row.querySelector(
         "input[type='checkbox'][name='shipment_import_select_view_model[shipment_import_record_ids][]']"
@@ -267,8 +283,7 @@
       if (!checkbox) return;
 
       if (code === countryCode && !checkbox.checked) {
-        checkbox.checked = true;
-        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+        checkbox.click();
       }
     });
   }
@@ -283,9 +298,11 @@
       uncheckAllShipments();
     }
 
-    window.setTimeout(() => {
-      selectCountryRows("US");
-    }, 50);
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        selectCountryRows("US");
+      }, 150);
+    });
   }
 
   function setupSelectUsButton() {
