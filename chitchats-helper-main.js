@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.2.0
-// @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Picks the visible correct .js-print-many-button, avoids repeat clicks, logs actions, and provides Ctrl+Shift+P manual hotkey fallback if the browser blocks automated print/download flows.
+// @version      1.3.0
+// @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Adds a "Select all U.S. orders" helper on import select. Picks the visible correct .js-print-many-button, avoids repeat clicks, logs actions, and provides Ctrl+Shift+P manual hotkey fallback if the browser blocks automated print/download flows.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
+// @match        https://chitchats.com/clients/305498/import/select*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
@@ -71,6 +72,10 @@
 
   function isBatchesPage() {
     return location.pathname.startsWith("/clients/305498/batches");
+  }
+
+  function isImportSelectPage() {
+    return location.pathname.startsWith("/clients/305498/import/select");
   }
 
   function cooldownKey() {
@@ -196,6 +201,239 @@
 
     // Extra nudge
     el.click();
+  }
+
+  // ========= IMPORT SELECT: U.S. ONLY =========
+  const SELECT_US_BUTTON_ID = "cc-select-us-orders";
+
+  function normalizeCountryCode(text) {
+    return (text || "")
+      .replace(/\./g, "")
+      .trim()
+      .toUpperCase();
+  }
+
+  function getCountryColumnIndex(table) {
+    if (!table) return -1;
+    const headers = Array.from(table.querySelectorAll("thead th"));
+    const headerIndex = headers.findIndex((th) => {
+      const label = (th.textContent || "").trim().toLowerCase();
+      return label === "country";
+    });
+    if (headerIndex >= 0) return headerIndex;
+
+    return -1;
+  }
+
+  function findDeselectAllButton() {
+    const buttons = Array.from(document.querySelectorAll("button, a"));
+    return buttons.find((button) => {
+      const text = (button.textContent || "").trim().toLowerCase();
+      return text === "deselect all";
+    });
+  }
+
+  function uncheckAllShipments() {
+    const inputs = document.querySelectorAll(
+      "input[type='checkbox'][name='shipment_import_select_view_model[shipment_import_record_ids][]']"
+    );
+    inputs.forEach((input) => {
+      if (input.checked) {
+        input.checked = false;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    const selectAllToggle = document.querySelector("#shipment-all");
+    if (selectAllToggle && selectAllToggle.checked) {
+      selectAllToggle.checked = false;
+      selectAllToggle.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  const CHECKBOX_CLICK_DELAY_MS = 250;
+  const SELECTION_RETRY_DELAY_MS = 600;
+  const SELECTION_MAX_RETRIES = 2;
+
+  function setCheckboxChecked(checkbox, shouldCheck) {
+    if (!checkbox || checkbox.checked === shouldCheck) return;
+    checkbox.click();
+
+    if (checkbox.checked !== shouldCheck) {
+      checkbox.checked = shouldCheck;
+      checkbox.dispatchEvent(new Event("input", { bubbles: true }));
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  function getCountryCell(row, countryIndex) {
+    if (!row) return null;
+    const cells = Array.from(row.querySelectorAll("td"));
+
+    if (countryIndex >= 0 && cells[countryIndex]) {
+      return cells[countryIndex];
+    }
+
+    return cells.find((cell) => {
+      const dataTitle = (cell.getAttribute("data-title") || cell.getAttribute("data-th") || "").toLowerCase();
+      return dataTitle === "country";
+    }) || null;
+  }
+
+  function selectCountryRows(countryCode) {
+    const rows = Array.from(
+      document.querySelectorAll("tr[class*='js-shipment-import-record-']")
+    );
+    if (!rows.length) return;
+
+    const table = rows[0].closest("table");
+    const countryIndex = getCountryColumnIndex(table);
+
+    rows.forEach((row) => {
+      const countryCell = getCountryCell(row, countryIndex);
+      const code = normalizeCountryCode(countryCell ? countryCell.textContent : "");
+      const checkbox = row.querySelector(
+        "input[type='checkbox'][name='shipment_import_select_view_model[shipment_import_record_ids][]']"
+      );
+      if (!checkbox) return;
+
+      if (code === countryCode) {
+        setCheckboxChecked(checkbox, true);
+      }
+    });
+  }
+
+  function getCountryCheckboxes(countryCode) {
+    const rows = Array.from(
+      document.querySelectorAll("tr[class*='js-shipment-import-record-']")
+    );
+    if (!rows.length) return [];
+
+    const table = rows[0].closest("table");
+    const countryIndex = getCountryColumnIndex(table);
+
+    return rows
+      .map((row) => {
+        const countryCell = getCountryCell(row, countryIndex);
+        const code = normalizeCountryCode(countryCell ? countryCell.textContent : "");
+        if (code !== countryCode) return null;
+        return row.querySelector(
+          "input[type='checkbox'][name='shipment_import_select_view_model[shipment_import_record_ids][]']"
+        );
+      })
+      .filter(Boolean);
+  }
+
+  function selectCheckboxesSequentially(checkboxes) {
+    if (!checkboxes.length) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      let index = 0;
+      const tick = () => {
+        const checkbox = checkboxes[index];
+        if (checkbox) {
+          setCheckboxChecked(checkbox, true);
+        }
+        index += 1;
+        if (index >= checkboxes.length) {
+          resolve();
+          return;
+        }
+        window.setTimeout(tick, CHECKBOX_CLICK_DELAY_MS);
+      };
+      tick();
+    });
+  }
+
+  function waitForDeselectAll(callback, timeoutMs = 2000) {
+    const start = Date.now();
+    const timer = window.setInterval(() => {
+      const checked = document.querySelectorAll(
+        "input[type='checkbox'][name='shipment_import_select_view_model[shipment_import_record_ids][]']:checked"
+      );
+      if (checked.length === 0 || Date.now() - start > timeoutMs) {
+        window.clearInterval(timer);
+        callback();
+      }
+    }, 50);
+  }
+
+  function countChecked(checkboxes) {
+    return checkboxes.filter((checkbox) => checkbox.checked).length;
+  }
+
+  function ensureCountrySelection(countryCode, attempt = 0) {
+    const checkboxes = getCountryCheckboxes(countryCode);
+    if (!checkboxes.length) return Promise.resolve();
+
+    return selectCheckboxesSequentially(checkboxes).then(() => {
+      return new Promise((resolve) => {
+        window.setTimeout(() => {
+          const checked = countChecked(checkboxes);
+          if (checked < checkboxes.length && attempt < SELECTION_MAX_RETRIES) {
+            resolve(ensureCountrySelection(countryCode, attempt + 1));
+            return;
+          }
+          resolve();
+        }, SELECTION_RETRY_DELAY_MS);
+      });
+    });
+  }
+
+  function handleSelectUsOrders(button) {
+    if (!isImportSelectPage()) return;
+
+    if (button && button.dataset.busy === "true") return;
+    if (button) {
+      button.dataset.busy = "true";
+      button.disabled = true;
+      button.textContent = "Selecting U.S. orders...";
+    }
+
+    const deselectButton = findDeselectAllButton();
+    if (deselectButton) {
+      deselectButton.click();
+    } else {
+      uncheckAllShipments();
+    }
+
+    waitForDeselectAll(() => {
+      ensureCountrySelection("US").finally(() => {
+        window.setTimeout(() => {
+          if (!button) return;
+          button.dataset.busy = "false";
+          button.disabled = false;
+          button.textContent = "Select all U.S. orders";
+        }, 300);
+      });
+    });
+  }
+
+  function setupSelectUsButton() {
+    if (!isImportSelectPage()) return;
+    if (document.getElementById(SELECT_US_BUTTON_ID)) return;
+
+    const summaryText = Array.from(document.querySelectorAll("p.lead"))
+      .find((node) => (node.textContent || "").toLowerCase().includes("orders available"));
+    const container = summaryText ? summaryText.closest(".d-flex.align-items-center") : null;
+    if (!container) return;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.id = SELECT_US_BUTTON_ID;
+    button.textContent = "Select all U.S. orders";
+    button.style.background = "#0275d8";
+    button.style.color = "#fff";
+    button.style.border = "none";
+    button.style.borderRadius = "4px";
+    button.style.padding = "6px 12px";
+    button.style.marginLeft = "12px";
+    button.style.cursor = "pointer";
+
+    button.addEventListener("click", () => handleSelectUsOrders(button));
+
+    container.appendChild(button);
   }
 
   function clickIfReady(reason = "auto") {
@@ -331,12 +569,14 @@
   clickIfReady("auto");
   setupWeightPresetButtons();
   setupDimensionPresetButtons();
+  setupSelectUsButton();
 
   // 2) Watch for SPA/AJAX re-rendering
   const observer = new MutationObserver(() => {
     clickIfReady("auto");
     setupWeightPresetButtons();
     setupDimensionPresetButtons();
+    setupSelectUsButton();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
