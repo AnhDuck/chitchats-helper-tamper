@@ -58,8 +58,8 @@
 
   // Shipments-only: editable dimension presets for L/W/H (cm).
   const DIMENSION_PRESETS = [
-    { label: "15 x 15 x 5 cm", x: 15, y: 15, z: 5 },
-    { label: "15 x 18.5 x 5 cm", x: 15, y: 18.5, z: 5 }
+    { label: "NO DBAR | 15 x 15 x 5 cm", x: 15, y: 15, z: 5 },
+    { label: "w/DBAR | 15 x 18.5 x 5 cm", x: 15, y: 18.5, z: 5 }
   ];
 
   // ========= HELPERS =========
