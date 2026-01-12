@@ -306,6 +306,7 @@
 
     const boldDays = document.createElement("strong");
     boldDays.textContent = `${businessDays} business days`;
+    boldDays.style.cursor = "pointer";
     const daysStart = text.textContent.indexOf(`${businessDays} business days`);
     if (daysStart !== -1) {
       const before = document.createTextNode(text.textContent.slice(0, daysStart));
@@ -313,6 +314,19 @@
       text.textContent = "";
       text.append(before, boldDays, after);
     }
+
+    boldDays.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(String(businessDays));
+        const originalText = boldDays.textContent;
+        boldDays.textContent = "Copied";
+        setTimeout(() => {
+          boldDays.textContent = originalText;
+        }, 2000);
+      } catch (e) {
+        log("Copy failed", e);
+      }
+    });
 
     const button = document.createElement("button");
     button.id = DELIVERY_COPY_BUTTON_ID;
