@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Picks the visible correct .js-print-many-button, avoids repeat clicks, logs actions, and provides Ctrl+Shift+P manual hotkey fallback if the browser blocks automated print/download flows.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
@@ -198,6 +198,116 @@
     el.click();
   }
 
+  // ========= BUSINESS DAYS TO DELIVERY (SHIPMENT DETAIL) =========
+  const DELIVERY_TIME_ID = "cc-delivery-time";
+
+  function isShipmentDetailPage() {
+    if (!isShipmentsPage()) return false;
+    const parts = location.pathname.split("/").filter(Boolean);
+    return parts[0] === "clients" && parts[2] === "shipments" && parts.length >= 4;
+  }
+
+  function parseDateFromHeaderSpan(span) {
+    if (!span) return null;
+    const title = span.getAttribute("title") || "";
+    const datePart = title.split(" ")[0];
+    if (!datePart || datePart.length < 10) return null;
+    const date = new Date(`${datePart}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function countBusinessDays(startDate, endDate) {
+    const current = new Date(startDate);
+    current.setDate(current.getDate() + 1);
+    let count = 0;
+
+    while (current <= endDate) {
+      const day = current.getDay();
+      if (day !== 0 && day !== 6) {
+        count += 1;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    return count;
+  }
+
+  function formatShortDate(date) {
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function findTrackingEvents() {
+    const elements = Array.from(document.querySelectorAll("td, div, span, p, li"));
+    let receivedEl = null;
+    let deliveredEl = null;
+
+    elements.forEach((el) => {
+      const text = (el.textContent || "").trim();
+      if (!receivedEl && text === "Received by Chit Chats") {
+        receivedEl = el;
+      }
+      if (!deliveredEl && text.includes("Delivered")) {
+        deliveredEl = el;
+      }
+    });
+
+    return { receivedEl, deliveredEl };
+  }
+
+  function findTrackingContainer(receivedEl, deliveredEl) {
+    const anchor = receivedEl || deliveredEl;
+    if (!anchor) return null;
+    return anchor.closest("table")
+      || anchor.closest("[class*='tracking']")
+      || anchor.closest("[id*='tracking']")
+      || document.body;
+  }
+
+  function findNearestDateHeader(eventEl, container) {
+    if (!eventEl || !container) return null;
+    const spans = Array.from(container.querySelectorAll("span[title]"));
+    let nearest = null;
+
+    spans.forEach((span) => {
+      const position = span.compareDocumentPosition(eventEl);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+        nearest = span;
+      }
+    });
+
+    return nearest;
+  }
+
+  function injectDeliveryTime() {
+    if (!isShipmentDetailPage()) return;
+    if (document.getElementById(DELIVERY_TIME_ID)) return;
+
+    const { receivedEl, deliveredEl } = findTrackingEvents();
+    if (!receivedEl || !deliveredEl) return;
+
+    const container = findTrackingContainer(receivedEl, deliveredEl);
+    if (!container) return;
+
+    const receivedSpan = findNearestDateHeader(receivedEl, container);
+    const deliveredSpan = findNearestDateHeader(deliveredEl, container);
+    const receivedDate = parseDateFromHeaderSpan(receivedSpan);
+    const deliveredDate = parseDateFromHeaderSpan(deliveredSpan);
+    if (!receivedDate || !deliveredDate) return;
+
+    const businessDays = countBusinessDays(receivedDate, deliveredDate);
+    const summary = document.createElement("div");
+    summary.id = DELIVERY_TIME_ID;
+    summary.style.margin = "8px 0 12px";
+    summary.textContent = `Delivery time: ${businessDays} business days (Received ${formatShortDate(receivedDate)} → Delivered ${formatShortDate(deliveredDate)})`;
+
+    const table = container.tagName === "TABLE" ? container : container.querySelector("table");
+    if (table) {
+      table.insertAdjacentElement("beforebegin", summary);
+    } else {
+      container.insertAdjacentElement("afterbegin", summary);
+    }
+  }
+
   function clickIfReady(reason = "auto") {
     if (!isShipmentsPage() && !isBatchesPage()) return;
 
@@ -331,6 +441,7 @@
   clickIfReady("auto");
   setupWeightPresetButtons();
   setupDimensionPresetButtons();
+  injectDeliveryTime();
 
   // 2) Watch for SPA/AJAX re-rendering
   const observer = new MutationObserver(() => {
