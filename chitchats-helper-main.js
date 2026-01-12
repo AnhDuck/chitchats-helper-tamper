@@ -307,6 +307,7 @@
     const boldDays = document.createElement("strong");
     boldDays.textContent = `${businessDays} business days`;
     boldDays.style.cursor = "pointer";
+    boldDays.title = "Click to copy number of business days";
     const daysStart = text.textContent.indexOf(`${businessDays} business days`);
     if (daysStart !== -1) {
       const before = document.createTextNode(text.textContent.slice(0, daysStart));
