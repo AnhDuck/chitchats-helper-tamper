@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Picks the visible correct .js-print-many-button, avoids repeat clicks, logs actions, and provides Ctrl+Shift+P manual hotkey fallback if the browser blocks automated print/download flows.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
@@ -198,6 +198,172 @@
     el.click();
   }
 
+  // ========= BUSINESS DAYS TO DELIVERY (SHIPMENT DETAIL) =========
+  const DELIVERY_TIME_ID = "cc-delivery-time";
+  const DELIVERY_COPY_BUTTON_ID = "cc-delivery-time-copy";
+
+  function isShipmentDetailPage() {
+    if (!isShipmentsPage()) return false;
+    const parts = location.pathname.split("/").filter(Boolean);
+    return parts[0] === "clients" && parts[2] === "shipments" && parts.length >= 4;
+  }
+
+  function parseDateFromHeaderSpan(span) {
+    if (!span) return null;
+    const title = span.getAttribute("title") || "";
+    const datePart = title.split(" ")[0];
+    if (!datePart || datePart.length < 10) return null;
+    const date = new Date(`${datePart}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function countBusinessDays(startDate, endDate) {
+    const current = new Date(startDate);
+    current.setDate(current.getDate() + 1);
+    let count = 0;
+
+    while (current <= endDate) {
+      const day = current.getDay();
+      if (day !== 0 && day !== 6) {
+        count += 1;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    return count;
+  }
+
+  function formatShortDate(date) {
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function findShipmentId() {
+    const strong = document.querySelector(".clearfix strong");
+    return strong ? (strong.textContent || "").trim() : "";
+  }
+
+  function findTrackingEvents(root) {
+    const elements = Array.from(root.querySelectorAll(".tracking-table__title span"));
+    let receivedEl = null;
+    let deliveredEl = null;
+
+    elements.forEach((el) => {
+      const text = (el.textContent || "").trim();
+      if (!receivedEl && text === "Received by Chit Chats") {
+        receivedEl = el;
+      }
+      if (!deliveredEl && text.includes("Delivered")) {
+        deliveredEl = el;
+      }
+    });
+
+    return { receivedEl, deliveredEl };
+  }
+
+  function findTrackingContainer() {
+    return document.querySelector("table.tracking-table")
+      || document.querySelector("table");
+  }
+
+  function findNearestDateHeader(eventEl) {
+    if (!eventEl) return null;
+    let row = eventEl.closest("tr");
+
+    while (row) {
+      const headerSpan = row.querySelector("span[title]");
+      if (headerSpan) return headerSpan;
+      row = row.previousElementSibling;
+    }
+
+    return null;
+  }
+
+  function injectDeliveryTime() {
+    if (!isShipmentDetailPage()) return;
+    if (document.getElementById(DELIVERY_TIME_ID)) return;
+
+    const container = findTrackingContainer();
+    if (!container) return;
+    const { receivedEl, deliveredEl } = findTrackingEvents(container);
+    if (!receivedEl || !deliveredEl) return;
+
+    const receivedSpan = findNearestDateHeader(receivedEl);
+    const deliveredSpan = findNearestDateHeader(deliveredEl);
+    const receivedDate = parseDateFromHeaderSpan(receivedSpan);
+    const deliveredDate = parseDateFromHeaderSpan(deliveredSpan);
+    if (!receivedDate || !deliveredDate) return;
+
+    const businessDays = countBusinessDays(receivedDate, deliveredDate);
+    const summary = document.createElement("div");
+    summary.id = DELIVERY_TIME_ID;
+    summary.style.margin = "8px 0 12px";
+    summary.style.display = "flex";
+    summary.style.alignItems = "center";
+    summary.style.gap = "8px";
+
+    const text = document.createElement("span");
+    text.textContent = `Delivery time: ${businessDays} business days (Received ${formatShortDate(receivedDate)} → Delivered ${formatShortDate(deliveredDate)})`;
+
+    const boldDays = document.createElement("strong");
+    boldDays.textContent = `${businessDays} business days`;
+    boldDays.style.cursor = "pointer";
+    boldDays.title = "Click to copy number of business days";
+    const daysStart = text.textContent.indexOf(`${businessDays} business days`);
+    if (daysStart !== -1) {
+      const before = document.createTextNode(text.textContent.slice(0, daysStart));
+      const after = document.createTextNode(text.textContent.slice(daysStart + boldDays.textContent.length));
+      text.textContent = "";
+      text.append(before, boldDays, after);
+    }
+
+    boldDays.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(String(businessDays));
+        const originalText = boldDays.textContent;
+        boldDays.textContent = "Copied";
+        setTimeout(() => {
+          boldDays.textContent = originalText;
+        }, 2000);
+      } catch (e) {
+        log("Copy failed", e);
+      }
+    });
+
+    const button = document.createElement("button");
+    button.id = DELIVERY_COPY_BUTTON_ID;
+    button.type = "button";
+    button.textContent = "Copy shipment ID";
+    button.style.padding = "4px 8px";
+    button.style.borderRadius = "4px";
+    button.style.border = "1px solid #ccc";
+    button.style.background = "#fff";
+    button.style.cursor = "pointer";
+
+    const shipmentId = findShipmentId();
+    if (!shipmentId) return;
+
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(shipmentId);
+        button.textContent = "Copied";
+        setTimeout(() => {
+          button.textContent = "Copy shipment ID";
+        }, 2000);
+      } catch (e) {
+        log("Copy failed", e);
+      }
+    });
+
+    summary.append(text, button);
+
+    const table = container.tagName === "TABLE" ? container : container.querySelector("table");
+    if (table) {
+      table.insertAdjacentElement("beforebegin", summary);
+    } else {
+      container.insertAdjacentElement("afterbegin", summary);
+    }
+  }
+
   function clickIfReady(reason = "auto") {
     if (!isShipmentsPage() && !isBatchesPage()) return;
 
@@ -331,6 +497,7 @@
   clickIfReady("auto");
   setupWeightPresetButtons();
   setupDimensionPresetButtons();
+  injectDeliveryTime();
 
   // 2) Watch for SPA/AJAX re-rendering
   const observer = new MutationObserver(() => {
