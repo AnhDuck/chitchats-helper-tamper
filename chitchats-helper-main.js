@@ -200,6 +200,7 @@
 
   // ========= BUSINESS DAYS TO DELIVERY (SHIPMENT DETAIL) =========
   const DELIVERY_TIME_ID = "cc-delivery-time";
+  const DELIVERY_COPY_BUTTON_ID = "cc-delivery-time-copy";
 
   function isShipmentDetailPage() {
     if (!isShipmentsPage()) return false;
@@ -234,6 +235,11 @@
 
   function formatShortDate(date) {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function findShipmentId() {
+    const strong = document.querySelector(".clearfix strong");
+    return strong ? (strong.textContent || "").trim() : "";
   }
 
   function findTrackingEvents(root) {
@@ -291,7 +297,49 @@
     const summary = document.createElement("div");
     summary.id = DELIVERY_TIME_ID;
     summary.style.margin = "8px 0 12px";
-    summary.textContent = `Delivery time: ${businessDays} business days (Received ${formatShortDate(receivedDate)} → Delivered ${formatShortDate(deliveredDate)})`;
+    summary.style.display = "flex";
+    summary.style.alignItems = "center";
+    summary.style.gap = "8px";
+
+    const text = document.createElement("span");
+    text.textContent = `Delivery time: ${businessDays} business days (Received ${formatShortDate(receivedDate)} → Delivered ${formatShortDate(deliveredDate)})`;
+
+    const boldDays = document.createElement("strong");
+    boldDays.textContent = `${businessDays} business days`;
+    const daysStart = text.textContent.indexOf(`${businessDays} business days`);
+    if (daysStart !== -1) {
+      const before = document.createTextNode(text.textContent.slice(0, daysStart));
+      const after = document.createTextNode(text.textContent.slice(daysStart + boldDays.textContent.length));
+      text.textContent = "";
+      text.append(before, boldDays, after);
+    }
+
+    const button = document.createElement("button");
+    button.id = DELIVERY_COPY_BUTTON_ID;
+    button.type = "button";
+    button.textContent = "Copy shipment ID";
+    button.style.padding = "4px 8px";
+    button.style.borderRadius = "4px";
+    button.style.border = "1px solid #ccc";
+    button.style.background = "#fff";
+    button.style.cursor = "pointer";
+
+    const shipmentId = findShipmentId();
+    if (!shipmentId) return;
+
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(shipmentId);
+        button.textContent = "Copied";
+        setTimeout(() => {
+          button.textContent = "Copy shipment ID";
+        }, 2000);
+      } catch (e) {
+        log("Copy failed", e);
+      }
+    });
+
+    summary.append(text, button);
 
     const table = container.tagName === "TABLE" ? container : container.querySelector("table");
     if (table) {
