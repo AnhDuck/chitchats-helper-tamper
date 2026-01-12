@@ -236,8 +236,8 @@
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
-  function findTrackingEvents() {
-    const elements = Array.from(document.querySelectorAll("td, div, span, p, li"));
+  function findTrackingEvents(root) {
+    const elements = Array.from(root.querySelectorAll(".tracking-table__title span"));
     let receivedEl = null;
     let deliveredEl = null;
 
@@ -254,42 +254,35 @@
     return { receivedEl, deliveredEl };
   }
 
-  function findTrackingContainer(receivedEl, deliveredEl) {
-    const anchor = receivedEl || deliveredEl;
-    if (!anchor) return null;
-    return anchor.closest("table")
-      || anchor.closest("[class*='tracking']")
-      || anchor.closest("[id*='tracking']")
-      || document.body;
+  function findTrackingContainer() {
+    return document.querySelector("table.tracking-table")
+      || document.querySelector("table");
   }
 
-  function findNearestDateHeader(eventEl, container) {
-    if (!eventEl || !container) return null;
-    const spans = Array.from(container.querySelectorAll("span[title]"));
-    let nearest = null;
+  function findNearestDateHeader(eventEl) {
+    if (!eventEl) return null;
+    let row = eventEl.closest("tr");
 
-    spans.forEach((span) => {
-      const position = span.compareDocumentPosition(eventEl);
-      if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
-        nearest = span;
-      }
-    });
+    while (row) {
+      const headerSpan = row.querySelector("span[title]");
+      if (headerSpan) return headerSpan;
+      row = row.previousElementSibling;
+    }
 
-    return nearest;
+    return null;
   }
 
   function injectDeliveryTime() {
     if (!isShipmentDetailPage()) return;
     if (document.getElementById(DELIVERY_TIME_ID)) return;
 
-    const { receivedEl, deliveredEl } = findTrackingEvents();
+    const container = findTrackingContainer();
+    if (!container) return;
+    const { receivedEl, deliveredEl } = findTrackingEvents(container);
     if (!receivedEl || !deliveredEl) return;
 
-    const container = findTrackingContainer(receivedEl, deliveredEl);
-    if (!container) return;
-
-    const receivedSpan = findNearestDateHeader(receivedEl, container);
-    const deliveredSpan = findNearestDateHeader(deliveredEl, container);
+    const receivedSpan = findNearestDateHeader(receivedEl);
+    const deliveredSpan = findNearestDateHeader(deliveredEl);
     const receivedDate = parseDateFromHeaderSpan(receivedSpan);
     const deliveredDate = parseDateFromHeaderSpan(deliveredSpan);
     if (!receivedDate || !deliveredDate) return;
