@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Picks the visible correct .js-print-many-button, avoids repeat clicks, logs actions, and provides Ctrl+Shift+P manual hotkey fallback if the browser blocks automated print/download flows.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
+// @match        https://chitchats.com/clients/305498/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
