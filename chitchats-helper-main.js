@@ -199,6 +199,32 @@
     el.click();
   }
 
+  const FEEDBACK_STYLE_ID = "cc-button-feedback-style";
+
+  function ensureButtonFeedbackStyles() {
+    if (document.getElementById(FEEDBACK_STYLE_ID)) return;
+
+    const style = document.createElement("style");
+    style.id = FEEDBACK_STYLE_ID;
+    style.textContent = `
+      .cc-feedback-button {
+        transition: transform 0.08s ease, filter 0.08s ease, box-shadow 0.08s ease;
+      }
+
+      .cc-feedback-button:active {
+        transform: translateY(1px) scale(0.98);
+        filter: brightness(0.9);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function applyButtonFeedback(button) {
+    ensureButtonFeedbackStyles();
+    button.classList.add("cc-feedback-button");
+  }
+
   // ========= BUSINESS DAYS TO DELIVERY (SHIPMENT DETAIL) =========
   const DELIVERY_TIME_ID = "cc-delivery-time";
   const DELIVERY_COPY_BUTTON_ID = "cc-delivery-time-copy";
@@ -339,6 +365,7 @@
     button.style.border = "1px solid #ccc";
     button.style.background = "#fff";
     button.style.cursor = "pointer";
+    applyButtonFeedback(button);
 
     const shipmentId = findShipmentId();
     if (!shipmentId) return;
@@ -402,7 +429,7 @@
 
   // ========= WEIGHT PRESET BUTTONS (SHIPMENTS EDIT) =========
   const WEIGHT_PRESET_VALUES = [113, 226, 340, 450];
-  const WEIGHT_PRESET_COLORS = ["#f9c5c1", "#f4a8a1", "#f08b7f", "#e76f51"];
+  const WEIGHT_PRESET_COLORS = ["#ef8f8b", "#e96d62", "#e4573d", "#d9480f"];
   const WEIGHT_PRESET_CONTAINER_ID = "cc-weight-presets";
 
   // Injects preset buttons below the weight row (safe to re-run; no duplicates).
@@ -433,6 +460,7 @@
       button.style.borderRadius = "4px";
       button.style.padding = "6px 10px";
       button.style.cursor = "pointer";
+      applyButtonFeedback(button);
 
       button.addEventListener("click", () => {
         weightInput.value = String(value);
@@ -476,6 +504,7 @@
       button.style.borderRadius = "4px";
       button.style.padding = "6px 10px";
       button.style.cursor = "pointer";
+      applyButtonFeedback(button);
 
       button.addEventListener("click", () => {
         lengthInput.value = String(preset.x);
