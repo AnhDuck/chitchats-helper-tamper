@@ -402,6 +402,7 @@
 
   // ========= WEIGHT PRESET BUTTONS (SHIPMENTS EDIT) =========
   const WEIGHT_PRESET_VALUES = [113, 226, 340, 450];
+  const WEIGHT_PRESET_COLORS = ["#f9c5c1", "#f4a8a1", "#f08b7f", "#e76f51"];
   const WEIGHT_PRESET_CONTAINER_ID = "cc-weight-presets";
 
   // Injects preset buttons below the weight row (safe to re-run; no duplicates).
@@ -422,11 +423,11 @@
     container.style.marginTop = "0";
     container.style.marginBottom = "14px";
 
-    WEIGHT_PRESET_VALUES.forEach((value) => {
+    WEIGHT_PRESET_VALUES.forEach((value, index) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = `${value} g`;
-      button.style.background = "#d9534f";
+      button.style.background = WEIGHT_PRESET_COLORS[index] || "#e76f51";
       button.style.color = "#fff";
       button.style.border = "none";
       button.style.borderRadius = "4px";
