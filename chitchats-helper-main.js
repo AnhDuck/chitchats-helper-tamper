@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.3.1
+// @version      1.3.2
 // @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Picks the visible correct .js-print-many-button, avoids repeat clicks, logs actions, and provides Ctrl+Shift+P manual hotkey fallback if the browser blocks automated print/download flows.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
@@ -430,97 +430,116 @@
   // ========= WEIGHT PRESET BUTTONS (SHIPMENTS EDIT) =========
   const WEIGHT_PRESET_VALUES = [113, 226, 340, 450];
   const WEIGHT_PRESET_COLORS = ["#ef8f8b", "#e96d62", "#e4573d", "#d9480f"];
-  const WEIGHT_PRESET_CONTAINER_ID = "cc-weight-presets";
+  const WEIGHT_PRESET_CONTAINER_CLASS = "cc-weight-presets";
+  const DIMENSION_PRESET_CONTAINER_CLASS = "cc-dimension-presets";
+  const WEIGHT_PRESET_SELECTOR = `#cc-weight-presets, .${WEIGHT_PRESET_CONTAINER_CLASS}`;
+  const DIMENSION_PRESET_SELECTOR = `#cc-dimension-presets, .${DIMENSION_PRESET_CONTAINER_CLASS}`;
 
-  // Injects preset buttons below the weight row (safe to re-run; no duplicates).
+  function findPackageForms() {
+    return Array.from(document.querySelectorAll("form.js-material-form"))
+      .filter((form) => form.querySelector("[name='shipment_package_view_model[weight_amount]']"));
+  }
+
+  function dispatchInputChange(input) {
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function stylePresetContainer(container) {
+    container.style.display = "flex";
+    container.style.flexWrap = "wrap";
+    container.style.alignItems = "center";
+    container.style.gap = "8px";
+  }
+
+  function stylePresetButton(button, background) {
+    button.style.background = background;
+    button.style.color = "#fff";
+    button.style.border = "none";
+    button.style.borderRadius = "4px";
+    button.style.padding = "6px 10px";
+    button.style.cursor = "pointer";
+    applyButtonFeedback(button);
+  }
+
+  // Injects preset buttons below each package weight row (safe to re-run; no duplicates).
   function setupWeightPresetButtons() {
     if (!isShipmentsPage()) return;
 
-    const weightInput = document.querySelector("#shipment_package_view_model_weight_amount");
-    if (!weightInput) return;
-    if (document.getElementById(WEIGHT_PRESET_CONTAINER_ID)) return;
+    findPackageForms().forEach((form) => {
+      if (form.querySelector(WEIGHT_PRESET_SELECTOR)) return;
 
-    const weightRow = weightInput.closest(".row");
-    if (!weightRow) return;
+      const weightInput = form.querySelector("[name='shipment_package_view_model[weight_amount]']");
+      if (!weightInput) return;
 
-    const container = document.createElement("div");
-    container.id = WEIGHT_PRESET_CONTAINER_ID;
-    container.style.display = "flex";
-    container.style.gap = "8px";
-    container.style.marginTop = "0";
-    container.style.marginBottom = "14px";
+      const weightRow = weightInput.closest(".row");
+      if (!weightRow) return;
 
-    WEIGHT_PRESET_VALUES.forEach((value, index) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = `${value} g`;
-      button.style.background = WEIGHT_PRESET_COLORS[index] || "#e76f51";
-      button.style.color = "#fff";
-      button.style.border = "none";
-      button.style.borderRadius = "4px";
-      button.style.padding = "6px 10px";
-      button.style.cursor = "pointer";
-      applyButtonFeedback(button);
+      const container = document.createElement("div");
+      container.className = WEIGHT_PRESET_CONTAINER_CLASS;
+      stylePresetContainer(container);
+      container.style.marginTop = "0";
+      container.style.marginBottom = "14px";
 
-      button.addEventListener("click", () => {
-        weightInput.value = String(value);
-        weightInput.dispatchEvent(new Event("input", { bubbles: true }));
-        weightInput.dispatchEvent(new Event("change", { bubbles: true }));
+      WEIGHT_PRESET_VALUES.forEach((value, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `${value} g`;
+        stylePresetButton(button, WEIGHT_PRESET_COLORS[index] || "#e76f51");
+
+        button.addEventListener("click", () => {
+          weightInput.value = String(value);
+          dispatchInputChange(weightInput);
+        });
+
+        container.appendChild(button);
       });
 
-      container.appendChild(button);
+      weightRow.insertAdjacentElement("afterend", container);
     });
-
-    weightRow.insertAdjacentElement("afterend", container);
   }
 
-  // Injects dimension presets into the form actions (safe to re-run; no duplicates).
+  // Injects dimension presets into each package form action row (safe to re-run; no duplicates).
   function setupDimensionPresetButtons() {
     if (!isShipmentsPage()) return;
 
-    const formActions = document.querySelector(".form-actions.text-right");
-    if (!formActions) return;
-    if (document.getElementById("cc-dimension-presets")) return;
+    findPackageForms().forEach((form) => {
+      if (form.querySelector(DIMENSION_PRESET_SELECTOR)) return;
 
-    const lengthInput = document.querySelector("#shipment_package_view_model_size_x_amount");
-    const widthInput = document.querySelector("#shipment_package_view_model_size_y_amount");
-    const heightInput = document.querySelector("#shipment_package_view_model_size_z_amount");
-    if (!lengthInput || !widthInput || !heightInput) return;
+      const formActions = form.querySelector(".form-actions");
+      if (!formActions) return;
 
-    const container = document.createElement("div");
-    container.id = "cc-dimension-presets";
-    container.style.display = "flex";
-    container.style.gap = "8px";
-    container.style.textAlign = "left";
-    container.style.marginRight = "auto";
+      const lengthInput = form.querySelector("[name='shipment_package_view_model[size_x_amount]']");
+      const widthInput = form.querySelector("[name='shipment_package_view_model[size_y_amount]']");
+      const heightInput = form.querySelector("[name='shipment_package_view_model[size_z_amount]']");
+      if (!lengthInput || !widthInput || !heightInput) return;
 
-    DIMENSION_PRESETS.forEach((preset) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = preset.label;
-      button.style.background = "#0275d8";
-      button.style.color = "#fff";
-      button.style.border = "none";
-      button.style.borderRadius = "4px";
-      button.style.padding = "6px 10px";
-      button.style.cursor = "pointer";
-      applyButtonFeedback(button);
+      const container = document.createElement("div");
+      container.className = DIMENSION_PRESET_CONTAINER_CLASS;
+      stylePresetContainer(container);
+      container.style.justifyContent = "flex-start";
+      container.style.textAlign = "left";
+      container.style.marginBottom = "10px";
 
-      button.addEventListener("click", () => {
-        lengthInput.value = String(preset.x);
-        widthInput.value = String(preset.y);
-        heightInput.value = String(preset.z);
+      DIMENSION_PRESETS.forEach((preset) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = preset.label;
+        stylePresetButton(button, "#0275d8");
 
-        [lengthInput, widthInput, heightInput].forEach((input) => {
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          input.dispatchEvent(new Event("change", { bubbles: true }));
+        button.addEventListener("click", () => {
+          lengthInput.value = String(preset.x);
+          widthInput.value = String(preset.y);
+          heightInput.value = String(preset.z);
+
+          [lengthInput, widthInput, heightInput].forEach(dispatchInputChange);
         });
+
+        container.appendChild(button);
       });
 
-      container.appendChild(button);
+      formActions.insertAdjacentElement("beforebegin", container);
     });
-
-    formActions.insertAdjacentElement("afterbegin", container);
   }
 
   // ========= RUN =========
