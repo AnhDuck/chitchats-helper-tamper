@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.3.1
-// @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Picks the visible correct .js-print-many-button, avoids repeat clicks, logs actions, and provides Ctrl+Shift+P manual hotkey fallback if the browser blocks automated print/download flows.
+// @version      1.3.2
+// @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Adds package weight/dimension presets in shipment edit modals, including batch pages. Provides Ctrl+Shift+P manual hotkey fallback if automated print/download flows are blocked.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
 // @match        https://chitchats.com/clients/305498/*
@@ -427,14 +427,19 @@
     }, CLICK_DELAY_MS);
   }
 
-  // ========= WEIGHT PRESET BUTTONS (SHIPMENTS EDIT) =========
+  // ========= WEIGHT/DIMENSION PRESET BUTTONS (SHIPMENT PACKAGE EDIT MODAL) =========
   const WEIGHT_PRESET_VALUES = [113, 226, 340, 450];
   const WEIGHT_PRESET_COLORS = ["#ef8f8b", "#e96d62", "#e4573d", "#d9480f"];
   const WEIGHT_PRESET_CONTAINER_ID = "cc-weight-presets";
 
+
+  function isShipmentPackageEditFormPresent() {
+    return Boolean(document.querySelector("#shipment_package_view_model_weight_amount"));
+  }
+
   // Injects preset buttons below the weight row (safe to re-run; no duplicates).
   function setupWeightPresetButtons() {
-    if (!isShipmentsPage()) return;
+    if (!isShipmentPackageEditFormPresent()) return;
 
     const weightInput = document.querySelector("#shipment_package_view_model_weight_amount");
     if (!weightInput) return;
@@ -464,6 +469,13 @@
 
       button.addEventListener("click", () => {
         weightInput.value = String(value);
+
+        const weightUnitSelect = document.querySelector("#shipment_package_view_model_weight_unit");
+        if (weightUnitSelect) {
+          weightUnitSelect.value = "g";
+          weightUnitSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+
         weightInput.dispatchEvent(new Event("input", { bubbles: true }));
         weightInput.dispatchEvent(new Event("change", { bubbles: true }));
       });
@@ -476,7 +488,7 @@
 
   // Injects dimension presets into the form actions (safe to re-run; no duplicates).
   function setupDimensionPresetButtons() {
-    if (!isShipmentsPage()) return;
+    if (!isShipmentPackageEditFormPresent()) return;
 
     const formActions = document.querySelector(".form-actions.text-right");
     if (!formActions) return;
@@ -510,6 +522,12 @@
         lengthInput.value = String(preset.x);
         widthInput.value = String(preset.y);
         heightInput.value = String(preset.z);
+
+        const sizeUnitSelect = document.querySelector("#shipment_package_view_model_size_unit");
+        if (sizeUnitSelect) {
+          sizeUnitSelect.value = "cm";
+          sizeUnitSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        }
 
         [lengthInput, widthInput, heightInput].forEach((input) => {
           input.dispatchEvent(new Event("input", { bubbles: true }));
