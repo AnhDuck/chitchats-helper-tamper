@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.3.3
-// @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Adds package weight/dimension presets in shipment edit modals, including batch pages. Provides Ctrl+Shift+P manual hotkey fallback if automated print/download flows are blocked.
+// @version      1.4.0
+// @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Adds package weight/dimension presets and postage-step scroll shortcut in shipment edit modals, including batch pages. Provides Ctrl+Shift+P manual hotkey fallback if automated print/download flows are blocked.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
 // @match        https://chitchats.com/clients/305498/*
@@ -583,18 +583,222 @@
     formActions.insertAdjacentElement("afterbegin", container);
   }
 
+  // ========= POSTAGE STEP SCROLL SHORTCUT (SHIPMENT POSTAGE EDIT MODAL) =========
+  const POSTAGE_SCROLL_BUTTON_ID = "cc-postage-scroll-to-payment";
+
+  function normalizedText(el) {
+    return [
+      el?.textContent,
+      el?.getAttribute?.("value"),
+      el?.getAttribute?.("title"),
+      el?.getAttribute?.("aria-label")
+    ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function findVisibleByText(selector, regex, root = document) {
+    return Array.from(root.querySelectorAll(selector))
+      .find((el) => isVisible(el) && regex.test(normalizedText(el)));
+  }
+
+  function findActivePostageModal() {
+    const modalSelectors = [
+      "#ajax-modal.modal.show",
+      ".modal.show",
+      "[role='dialog']",
+      ".modal-content"
+    ];
+
+    for (const selector of modalSelectors) {
+      const modal = Array.from(document.querySelectorAll(selector))
+        .find((el) => isVisible(el) && /postage\s+rates/i.test(normalizedText(el)));
+      if (modal) return modal;
+    }
+
+    const heading = findVisibleByText("h1,h2,h3,h4,strong,legend,label", /postage\s+rates/i);
+    return heading?.closest("#ajax-modal, .modal, [role='dialog'], .modal-content") || null;
+  }
+
+  function findPostageRatesScope() {
+    const modal = findActivePostageModal();
+    const root = modal || document;
+
+    const explicitContainer = Array.from(root.querySelectorAll(".js-postage-rates-container"))
+      .find((container) => isVisible(container) && container.querySelector("input[type='radio'], .js-postage-rate, label"));
+    if (explicitContainer) return explicitContainer;
+
+    const heading = findVisibleByText("h1,h2,h3,h4,strong,legend,label", /postage\s+rates/i, root);
+    if (!heading) return null;
+
+    let current = heading;
+    for (let depth = 0; depth < 6 && current; depth += 1) {
+      const parent = current.parentElement;
+      if (parent?.querySelector("input[type='radio'][name*='postage'], .js-postage-rate, [data-formatted-postage-amount]")) {
+        return parent;
+      }
+      current = parent;
+    }
+
+    return heading.parentElement;
+  }
+
+  function findFirstPostageRate(scope) {
+    const selectors = [
+      ".postage-rate-box-container",
+      ".js-postage-rate",
+      "[data-formatted-postage-amount]",
+      "input[type='radio'][name*='postage_rate']",
+      "input[type='radio'][name*='postage']"
+    ];
+
+    for (const selector of selectors) {
+      const match = Array.from(scope.querySelectorAll(selector)).find(isVisible);
+      if (!match) continue;
+
+      if (match.matches("input")) {
+        return match.closest(".postage-rate-box-container, .postage-rate-box, .custom-control, label, div");
+      }
+
+      return match;
+    }
+
+    return null;
+  }
+
+  function isHelperPostageScrollButton(el) {
+    return el?.id === POSTAGE_SCROLL_BUTTON_ID;
+  }
+
+  function findPayForShipmentButton(scope) {
+    const root = scope || findActivePostageModal() || document;
+    return Array.from(root.querySelectorAll("button,input[type='submit'],a"))
+      .find((el) => isVisible(el) && !isHelperPostageScrollButton(el) && /pay\s+for\s+shipment/i.test(normalizedText(el)));
+  }
+
+  function isScrollable(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    const overflow = `${style.overflowY} ${style.overflow}`;
+    return /(auto|scroll|overlay)/.test(overflow) && el.scrollHeight > el.clientHeight + 1;
+  }
+
+  function findBestPostageScrollContainer(scope, target) {
+    const modal = scope?.closest?.("#ajax-modal, .modal, [role='dialog'], .modal-content") || findActivePostageModal();
+
+    if (isScrollable(modal)) return modal;
+
+    let current = target || scope;
+    while (current && current !== document.body) {
+      if (isScrollable(current) && (!modal || modal.contains(current) || current.contains(modal))) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+
+    const modalScrollable = modal && Array.from(modal.querySelectorAll("*")).find(isScrollable);
+    return modalScrollable || document.scrollingElement || document.documentElement;
+  }
+
+  function scrollPostageModalToPayment() {
+    const modal = findActivePostageModal();
+    const scope = findPostageRatesScope();
+    const paymentButton = findPayForShipmentButton(modal || scope);
+    const scrollContainer = findBestPostageScrollContainer(modal || scope, paymentButton);
+
+    scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: "auto" });
+    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+
+    if (paymentButton) {
+      paymentButton.scrollIntoView({ block: "end", inline: "nearest", behavior: "auto" });
+      paymentButton.focus({ preventScroll: true });
+    }
+  }
+
+  function ensurePostageScrollStyles() {
+    if (document.getElementById("cc-postage-scroll-style")) return;
+
+    const style = document.createElement("style");
+    style.id = "cc-postage-scroll-style";
+    style.textContent = `
+      .cc-postage-scroll-anchor {
+        position: relative;
+      }
+
+      #${POSTAGE_SCROLL_BUTTON_ID} {
+        align-items: center;
+        background: #e53935;
+        border: 0;
+        border-radius: 999px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+        color: #fff;
+        cursor: pointer;
+        display: inline-flex;
+        font: 700 22px/1 Arial, sans-serif;
+        height: 34px;
+        justify-content: center;
+        padding: 0;
+        position: absolute;
+        right: -48px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 34px;
+        z-index: 20;
+      }
+
+      #${POSTAGE_SCROLL_BUTTON_ID}:hover,
+      #${POSTAGE_SCROLL_BUTTON_ID}:focus-visible {
+        background: #c62828;
+        outline: 2px solid #fff;
+        outline-offset: 2px;
+      }
+
+      @media (max-width: 880px) {
+        #${POSTAGE_SCROLL_BUTTON_ID} {
+          right: 10px;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function setupPostageScrollButton() {
+    const scope = findPostageRatesScope();
+    const firstRate = scope && findFirstPostageRate(scope);
+    if (!scope || !firstRate) return;
+
+    const existingButton = document.getElementById(POSTAGE_SCROLL_BUTTON_ID);
+    if (existingButton && firstRate.contains(existingButton)) return;
+    existingButton?.remove();
+
+    ensurePostageScrollStyles();
+    firstRate.classList.add("cc-postage-scroll-anchor");
+
+    const button = document.createElement("button");
+    button.id = POSTAGE_SCROLL_BUTTON_ID;
+    button.type = "button";
+    button.textContent = "↓";
+    button.textContent = "\u2193";
+    button.title = "Scroll down";
+    button.setAttribute("aria-label", "Scroll down to payment area");
+    applyButtonFeedback(button);
+    button.addEventListener("click", scrollPostageModalToPayment);
+
+    firstRate.appendChild(button);
+  }
+
   // ========= RUN =========
   // 1) Attempt once on load
   clickIfReady("auto");
   setupWeightPresetButtons();
   setupDimensionPresetButtons();
   injectDeliveryTime();
+  setupPostageScrollButton();
 
   // 2) Watch for SPA/AJAX re-rendering
   const observer = new MutationObserver(() => {
     clickIfReady("auto");
     setupWeightPresetButtons();
     setupDimensionPresetButtons();
+    setupPostageScrollButton();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
