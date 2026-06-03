@@ -240,12 +240,45 @@
 
   const FEEDBACK_STYLE_ID = "cc-button-feedback-style";
 
-  function ensureButtonFeedbackStyles() {
-    if (document.getElementById(FEEDBACK_STYLE_ID)) return;
-
+  function injectStyle(id, cssText) {
+    if (document.getElementById(id)) return;
     const style = document.createElement("style");
-    style.id = FEEDBACK_STYLE_ID;
-    style.textContent = `
+    style.id = id;
+    style.textContent = cssText;
+    document.head.appendChild(style);
+  }
+
+  function applyStyles(el, styles = {}) {
+    Object.assign(el.style, styles);
+  }
+
+  function dispatchInputChange(input) {
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function setSelectValue(selector, value) {
+    const select = document.querySelector(selector);
+    if (!select) return;
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function createButton({ text, styles = {}, onClick, id, title, ariaLabel }) {
+    const button = document.createElement("button");
+    button.type = "button";
+    if (id) button.id = id;
+    if (title) button.title = title;
+    if (ariaLabel) button.setAttribute("aria-label", ariaLabel);
+    button.textContent = text;
+    applyStyles(button, styles);
+    applyButtonFeedback(button);
+    if (onClick) button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function ensureButtonFeedbackStyles() {
+    injectStyle(FEEDBACK_STYLE_ID, `
       .cc-feedback-button {
         transition: transform 0.08s ease, filter 0.08s ease, box-shadow 0.08s ease;
       }
@@ -255,8 +288,7 @@
         filter: brightness(0.9);
         box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18);
       }
-    `;
-    document.head.appendChild(style);
+    `);
   }
 
   function applyButtonFeedback(button) {
@@ -362,17 +394,19 @@
     const businessDays = countBusinessDays(receivedDate, deliveredDate);
     const summary = document.createElement("div");
     summary.id = DELIVERY_TIME_ID;
-    summary.style.margin = "8px 0 12px";
-    summary.style.display = "flex";
-    summary.style.alignItems = "center";
-    summary.style.gap = "8px";
+    applyStyles(summary, {
+      margin: "8px 0 12px",
+      display: "flex",
+      alignItems: "center",
+      gap: "8px"
+    });
 
     const text = document.createElement("span");
     text.textContent = `Delivery time: ${businessDays} business days (Received ${formatShortDate(receivedDate)} → Delivered ${formatShortDate(deliveredDate)})`;
 
     const boldDays = document.createElement("strong");
     boldDays.textContent = `${businessDays} business days`;
-    boldDays.style.cursor = "pointer";
+    applyStyles(boldDays, { cursor: "pointer" });
     boldDays.title = "Click to copy number of business days";
     const daysStart = text.textContent.indexOf(`${businessDays} business days`);
     if (daysStart !== -1) {
@@ -395,29 +429,29 @@
       }
     });
 
-    const button = document.createElement("button");
-    button.id = DELIVERY_COPY_BUTTON_ID;
-    button.type = "button";
-    button.textContent = "Copy shipment ID";
-    button.style.padding = "4px 8px";
-    button.style.borderRadius = "4px";
-    button.style.border = "1px solid #ccc";
-    button.style.background = "#fff";
-    button.style.cursor = "pointer";
-    applyButtonFeedback(button);
-
     const shipmentId = findShipmentId();
     if (!shipmentId) return;
 
-    button.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(shipmentId);
-        button.textContent = "Copied";
-        setTimeout(() => {
-          button.textContent = "Copy shipment ID";
-        }, 2000);
-      } catch (e) {
-        log("Copy failed", e);
+    const button = createButton({
+      id: DELIVERY_COPY_BUTTON_ID,
+      text: "Copy shipment ID",
+      styles: {
+        padding: "4px 8px",
+        borderRadius: "4px",
+        border: "1px solid #ccc",
+        background: "#fff",
+        cursor: "pointer"
+      },
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(shipmentId);
+          button.textContent = "Copied";
+          setTimeout(() => {
+            button.textContent = "Copy shipment ID";
+          }, 2000);
+        } catch (e) {
+          log("Copy failed", e);
+        }
       }
     });
 
@@ -473,6 +507,14 @@
   const WEIGHT_PRESET_VALUES = [113, 226, 340, 450];
   const WEIGHT_PRESET_COLORS = ["#ef8f8b", "#e96d62", "#e4573d", "#d9480f"];
   const WEIGHT_PRESET_CONTAINER_ID = "cc-weight-presets";
+  const DIMENSION_PRESET_CONTAINER_ID = "cc-dimension-presets";
+  const PRESET_BUTTON_STYLES = {
+    color: "#fff",
+    border: "none",
+    borderRadius: "4px",
+    padding: "6px 10px",
+    cursor: "pointer"
+  };
 
 
   function isShipmentPackageEditFormPresent() {
@@ -492,34 +534,25 @@
 
     const container = document.createElement("div");
     container.id = WEIGHT_PRESET_CONTAINER_ID;
-    container.style.display = "flex";
-    container.style.gap = "8px";
-    container.style.marginTop = "0";
-    container.style.marginBottom = "14px";
+    applyStyles(container, {
+      display: "flex",
+      gap: "8px",
+      marginTop: "0",
+      marginBottom: "14px"
+    });
 
     WEIGHT_PRESET_VALUES.forEach((value, index) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = `${value} g`;
-      button.style.background = WEIGHT_PRESET_COLORS[index] || "#e76f51";
-      button.style.color = "#fff";
-      button.style.border = "none";
-      button.style.borderRadius = "4px";
-      button.style.padding = "6px 10px";
-      button.style.cursor = "pointer";
-      applyButtonFeedback(button);
-
-      button.addEventListener("click", () => {
-        weightInput.value = String(value);
-
-        const weightUnitSelect = document.querySelector("#shipment_package_view_model_weight_unit");
-        if (weightUnitSelect) {
-          weightUnitSelect.value = "g";
-          weightUnitSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      const button = createButton({
+        text: `${value} g`,
+        styles: {
+          ...PRESET_BUTTON_STYLES,
+          background: WEIGHT_PRESET_COLORS[index] || "#e76f51"
+        },
+        onClick: () => {
+          weightInput.value = String(value);
+          setSelectValue("#shipment_package_view_model_weight_unit", "g");
+          dispatchInputChange(weightInput);
         }
-
-        weightInput.dispatchEvent(new Event("input", { bubbles: true }));
-        weightInput.dispatchEvent(new Event("change", { bubbles: true }));
       });
 
       container.appendChild(button);
@@ -534,7 +567,7 @@
 
     const formActions = document.querySelector(".form-actions.text-right");
     if (!formActions) return;
-    if (document.getElementById("cc-dimension-presets")) return;
+    if (document.getElementById(DIMENSION_PRESET_CONTAINER_ID)) return;
 
     const lengthInput = document.querySelector("#shipment_package_view_model_size_x_amount");
     const widthInput = document.querySelector("#shipment_package_view_model_size_y_amount");
@@ -542,39 +575,29 @@
     if (!lengthInput || !widthInput || !heightInput) return;
 
     const container = document.createElement("div");
-    container.id = "cc-dimension-presets";
-    container.style.display = "flex";
-    container.style.gap = "8px";
-    container.style.textAlign = "left";
-    container.style.marginRight = "auto";
+    container.id = DIMENSION_PRESET_CONTAINER_ID;
+    applyStyles(container, {
+      display: "flex",
+      gap: "8px",
+      textAlign: "left",
+      marginRight: "auto"
+    });
 
     DIMENSION_PRESETS.forEach((preset) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = preset.label;
-      button.style.background = "#0275d8";
-      button.style.color = "#fff";
-      button.style.border = "none";
-      button.style.borderRadius = "4px";
-      button.style.padding = "6px 10px";
-      button.style.cursor = "pointer";
-      applyButtonFeedback(button);
+      const button = createButton({
+        text: preset.label,
+        styles: {
+          ...PRESET_BUTTON_STYLES,
+          background: "#0275d8"
+        },
+        onClick: () => {
+          lengthInput.value = String(preset.x);
+          widthInput.value = String(preset.y);
+          heightInput.value = String(preset.z);
 
-      button.addEventListener("click", () => {
-        lengthInput.value = String(preset.x);
-        widthInput.value = String(preset.y);
-        heightInput.value = String(preset.z);
-
-        const sizeUnitSelect = document.querySelector("#shipment_package_view_model_size_unit");
-        if (sizeUnitSelect) {
-          sizeUnitSelect.value = "cm";
-          sizeUnitSelect.dispatchEvent(new Event("change", { bubbles: true }));
+          setSelectValue("#shipment_package_view_model_size_unit", "cm");
+          [lengthInput, widthInput, heightInput].forEach(dispatchInputChange);
         }
-
-        [lengthInput, widthInput, heightInput].forEach((input) => {
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          input.dispatchEvent(new Event("change", { bubbles: true }));
-        });
       });
 
       container.appendChild(button);
@@ -712,12 +735,10 @@
     }
   }
 
-  function ensurePostageScrollStyles() {
-    if (document.getElementById("cc-postage-scroll-style")) return;
+  const POSTAGE_SCROLL_STYLE_ID = "cc-postage-scroll-style";
 
-    const style = document.createElement("style");
-    style.id = "cc-postage-scroll-style";
-    style.textContent = `
+  function ensurePostageScrollStyles() {
+    injectStyle(POSTAGE_SCROLL_STYLE_ID, `
       .cc-postage-scroll-anchor {
         position: relative;
       }
@@ -755,8 +776,7 @@
           right: 10px;
         }
       }
-    `;
-    document.head.appendChild(style);
+    `);
   }
 
   function setupPostageScrollButton() {
@@ -771,34 +791,32 @@
     ensurePostageScrollStyles();
     firstRate.classList.add("cc-postage-scroll-anchor");
 
-    const button = document.createElement("button");
-    button.id = POSTAGE_SCROLL_BUTTON_ID;
-    button.type = "button";
-    button.textContent = "↓";
-    button.textContent = "\u2193";
-    button.title = "Scroll down";
-    button.setAttribute("aria-label", "Scroll down to payment area");
-    applyButtonFeedback(button);
-    button.addEventListener("click", scrollPostageModalToPayment);
+    const button = createButton({
+      id: POSTAGE_SCROLL_BUTTON_ID,
+      text: "\u2193",
+      styles: {},
+      title: "Scroll down",
+      ariaLabel: "Scroll down to payment area",
+      onClick: scrollPostageModalToPayment
+    });
 
     firstRate.appendChild(button);
   }
 
-  // ========= RUN =========
-  // 1) Attempt once on load
-  clickIfReady("auto");
-  setupWeightPresetButtons();
-  setupDimensionPresetButtons();
-  injectDeliveryTime();
-  setupPostageScrollButton();
-
-  // 2) Watch for SPA/AJAX re-rendering
-  const observer = new MutationObserver(() => {
+  function runPageEnhancements() {
     clickIfReady("auto");
     setupWeightPresetButtons();
     setupDimensionPresetButtons();
     setupPostageScrollButton();
-  });
+  }
+
+  // ========= RUN =========
+  // 1) Attempt once on load
+  runPageEnhancements();
+  injectDeliveryTime();
+
+  // 2) Watch for SPA/AJAX re-rendering
+  const observer = new MutationObserver(runPageEnhancements);
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
   // 3) Hotkey fallback for user-gesture-required flows
