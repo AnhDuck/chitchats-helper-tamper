@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chit Chats - Auto Print (Shipments + Batches) + Hotkey Fallback
 // @namespace    https://tampermonkey.net/
-// @version      1.3.2
+// @version      1.3.3
 // @description  Auto-clicks Chit Chats "Print Postage" (Shipments) and "Print Label" (Batches). Adds package weight/dimension presets in shipment edit modals, including batch pages. Provides Ctrl+Shift+P manual hotkey fallback if automated print/download flows are blocked.
 // @match        https://chitchats.com/clients/305498/shipments*
 // @match        https://chitchats.com/clients/305498/batches*
@@ -18,14 +18,17 @@
       /clients/305498/batches*
 
   - Button detection:
-      Finds ALL: a.js-print-many-button
+      Finds ALL visible print buttons, including a.js-print-many-button rendered
+      inside Chit Chats modals. The button type is detected from the button
+      itself instead of only the current page URL so a Print Postage modal can
+      still be clicked when it opens from a non-shipments URL.
       Then filters to the "right" one based on:
         * Visible in the DOM (not display:none, not hidden)
         * Text match:
             Shipments: contains "print" + "postage"
             Batches:   contains "print" + "label"
         * Href pattern:
-            Shipments: ends with "/shipments/print"
+            Shipments: contains "/shipments/" and ends with "/print"
             Batches:   contains "/batches/" and ends with "/print"
 
   - Clicking strategy:
@@ -128,44 +131,80 @@
     return Array.isArray(parsed.ids) && parsed.ids.length > 0;
   }
 
-  function hrefLooksRight(btn) {
-    const href = btn.getAttribute("href") || "";
-    if (isShipmentsPage()) return href.endsWith("/shipments/print");
-    if (isBatchesPage()) return href.includes("/batches/") && href.endsWith("/print");
-    return false;
+  function normalizedButtonText(btn) {
+    return (btn.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
   }
 
-  function textLooksRight(btn) {
-    const text = (btn.textContent || "").trim().toLowerCase();
-    if (isShipmentsPage()) return text.includes("print") && text.includes("postage");
-    if (isBatchesPage()) return text.includes("print") && text.includes("label");
-    return false;
+  function normalizedHref(btn) {
+    const raw = btn.getAttribute("href") || "";
+
+    try {
+      return new URL(raw, location.origin).pathname;
+    } catch (e) {
+      return raw;
+    }
+  }
+
+  function hrefLooksLikeShipmentPrint(btn) {
+    const href = normalizedHref(btn);
+    return href.includes("/shipments/") && href.endsWith("/print");
+  }
+
+  function hrefLooksLikeBatchPrint(btn) {
+    const href = normalizedHref(btn);
+    return href.includes("/batches/") && href.endsWith("/print");
+  }
+
+  function textLooksLikeShipmentPrint(btn) {
+    const text = normalizedButtonText(btn);
+    return text.includes("print") && text.includes("postage");
+  }
+
+  function textLooksLikeBatchPrint(btn) {
+    const text = normalizedButtonText(btn);
+    return text.includes("print") && text.includes("label");
+  }
+
+  function printButtonKind(btn) {
+    if (textLooksLikeShipmentPrint(btn) && hrefLooksLikeShipmentPrint(btn)) return "shipments";
+    if (textLooksLikeBatchPrint(btn) && hrefLooksLikeBatchPrint(btn)) return "batches";
+    return null;
+  }
+
+  function isKnownPrintContext() {
+    return isShipmentsPage() || isBatchesPage() || Boolean(document.querySelector(".js-print-container"));
   }
 
   function findBestPrintButton() {
-    const all = Array.from(document.querySelectorAll("a.js-print-many-button"));
+    const all = Array.from(document.querySelectorAll("a.js-print-many-button, .js-print-container a[data-method='patch']"));
     if (!all.length) return null;
 
-    // Filter: visible + correct page text + correct href pattern
+    // Filter by the button itself rather than only by the current URL. Chit Chats
+    // can render the Print Postage modal while the browser is on another client
+    // URL, so URL-only checks reject a valid visible button.
     const candidates = all
       .filter(isVisible)
-      .filter(textLooksRight)
-      .filter(hrefLooksRight);
+      .filter((btn) => Boolean(printButtonKind(btn)));
 
     if (!candidates.length) {
-      // Helpful debug: show what exists
+      // Helpful debug: show what exists and which predicate failed.
       log("No matching visible print button found. Found buttons:",
           all.map(a => ({
             text: (a.textContent || "").trim(),
             href: a.getAttribute("href"),
-            visible: isVisible(a)
+            visible: isVisible(a),
+            kind: printButtonKind(a),
+            shipmentText: textLooksLikeShipmentPrint(a),
+            shipmentHref: hrefLooksLikeShipmentPrint(a),
+            batchText: textLooksLikeBatchPrint(a),
+            batchHref: hrefLooksLikeBatchPrint(a)
           }))
       );
       return null;
     }
 
-    // If multiple, pick the first (usually only one).
-    return candidates[0];
+    // Prefer a modal's primary button when present; otherwise use the first match.
+    return candidates.find((btn) => btn.closest(".js-print-container")) || candidates[0];
   }
 
   function dispatchMouseLikeClick(el) {
@@ -393,7 +432,7 @@
   }
 
   function clickIfReady(reason = "auto") {
-    if (!isShipmentsPage() && !isBatchesPage()) return;
+    if (!isKnownPrintContext()) return;
 
     if (reason === "auto" && !AUTO_CLICK_ENABLED) return;
 
@@ -408,8 +447,11 @@
     if (currentText.includes("printing")) return;
     if (btn.getAttribute("disabled") !== null) return;
 
-    // Shipments-only selection guard
-    if (isShipmentsPage() && SHIPMENTS_REQUIRE_SELECTED_IDS && !shipmentsHasSelectedIds(btn)) {
+    const kind = printButtonKind(btn);
+
+    // Shipments-only selection guard. Use the matched button type instead of the
+    // current URL because Chit Chats can show this modal from several client pages.
+    if (kind === "shipments" && SHIPMENTS_REQUIRE_SELECTED_IDS && !shipmentsHasSelectedIds(btn)) {
       log("Shipments: print button found, but ids[] not present/empty. Not clicking.");
       return;
     }
