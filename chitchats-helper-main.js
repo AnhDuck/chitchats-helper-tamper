@@ -708,7 +708,6 @@
     scrollContainer.scrollTop = scrollContainer.scrollHeight;
 
     if (paymentButton) {
-      paymentButton.scrollIntoView({ block: "end", inline: "nearest", behavior: "auto" });
       paymentButton.focus({ preventScroll: true });
     }
   }
